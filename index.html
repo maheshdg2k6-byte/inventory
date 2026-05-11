@@ -737,12 +737,12 @@ a { text-decoration: none; color: inherit; }
           <div class="price-cell">
             <div class="price-cell-label">Price (INR)</div>
             <div class="price-cell-value highlight" id="gold-inr"><div class="price-skeleton"></div></div>
-            <div class="price-cell-sub" id="gold-unit-label">per gram</div>
+            <div class="price-cell-sub" id="gold-unit-label">India market rate</div>
           </div>
           <div class="price-cell">
-            <div class="price-cell-label">Price (USD)</div>
+            <div class="price-cell-label">Spot (USD)</div>
             <div class="price-cell-value" id="gold-usd"><div class="price-skeleton"></div></div>
-            <div class="price-cell-sub">per gram</div>
+            <div class="price-cell-sub">intl. spot/gram</div>
           </div>
           <div class="price-cell">
             <div class="price-cell-label">Change</div>
@@ -768,12 +768,12 @@ a { text-decoration: none; color: inherit; }
           <div class="price-cell">
             <div class="price-cell-label">Price (INR)</div>
             <div class="price-cell-value highlight" id="silver-inr"><div class="price-skeleton"></div></div>
-            <div class="price-cell-sub" id="silver-unit-label">per gram</div>
+            <div class="price-cell-sub" id="silver-unit-label">India market rate</div>
           </div>
           <div class="price-cell">
-            <div class="price-cell-label">Price (USD)</div>
+            <div class="price-cell-label">Spot (USD)</div>
             <div class="price-cell-value" id="silver-usd"><div class="price-skeleton"></div></div>
-            <div class="price-cell-sub">per gram</div>
+            <div class="price-cell-sub">intl. spot/gram</div>
           </div>
           <div class="price-cell">
             <div class="price-cell-label">Change</div>
@@ -817,7 +817,7 @@ a { text-decoration: none; color: inherit; }
       <div class="prices-last-update" id="prices-last-update"></div>
 
       <div class="prices-disclaimer">
-        Prices are international spot rates in USD converted to INR using live forex rates. Actual jewellery prices may vary based on making charges, GST (3%), and local market rates.
+        INR prices include import duty & local levy adjustment (~7.5% for gold, ~5% for silver) applied on international spot rates. Excludes making charges and GST (3%). Actual prices may vary slightly by city and jeweller.
       </div>
 
     </div>
@@ -1272,6 +1272,12 @@ async function fetchPrices() {
     } catch(e) {}
   }
 
+  // India prices = spot × forex × India duty/import factor (~1.075 for gold, ~1.05 for silver)
+  // This accounts for India's import duty (10-15%), GST component, and local levies
+  // Factor derived from: actual India market price ÷ (spot_usd × usd_inr)
+  const INDIA_GOLD_FACTOR = 1.075;
+  const INDIA_SILVER_FACTOR = 1.05;
+
   pricesCache = {
     goldUsdOz: metalData.goldUsdOz,
     silverUsdOz: metalData.silverUsdOz,
@@ -1280,6 +1286,8 @@ async function fetchPrices() {
     silverChange: metalData.silverChange,
     silverChangePct: metalData.silverChangePct,
     usdToInr,
+    goldIndiaFactor: INDIA_GOLD_FACTOR,
+    silverIndiaFactor: INDIA_SILVER_FACTOR,
     fetchedAt: new Date(),
     source: metalData.source
   };
@@ -1303,13 +1311,15 @@ function fmtUSD(n) { return '$' + n.toFixed(2); }
 
 function renderPricesFromCache() {
   if (!pricesCache) return;
-  const { goldUsdOz, silverUsdOz, goldChange, goldChangePct, silverChange, silverChangePct, usdToInr } = pricesCache;
+  const { goldUsdOz, silverUsdOz, goldChange, goldChangePct, silverChange, silverChangePct,
+          usdToInr, goldIndiaFactor, silverIndiaFactor } = pricesCache;
 
   const [goldUsdUnit, unitLabel] = unitMultiplier(goldUsdOz);
   const [silverUsdUnit]          = unitMultiplier(silverUsdOz);
 
-  const goldInrUnit   = goldUsdUnit * usdToInr;
-  const silverInrUnit = silverUsdUnit * usdToInr;
+  // Apply India market factor (import duty + local levies) to match real Indian prices
+  const goldInrUnit   = goldUsdUnit   * usdToInr * (goldIndiaFactor   || 1.075);
+  const silverInrUnit = silverUsdUnit * usdToInr * (silverIndiaFactor || 1.05);
 
   // Gold
   qs('gold-inr').textContent   = fmtINR(goldInrUnit);
