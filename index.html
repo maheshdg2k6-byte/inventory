@@ -802,7 +802,7 @@ a { text-decoration: none; color: inherit; }
           </div>
           <div class="price-cell">
             <div class="price-cell-label">Source</div>
-            <div class="price-cell-value" style="font-size:12px;color:var(--text-muted)">open.er-api.com</div>
+            <div class="price-cell-value" id="fx-source-label" style="font-size:12px;color:var(--text-muted)">loading…</div>
             <div class="price-cell-sub">free, live</div>
           </div>
         </div>
@@ -1186,39 +1186,106 @@ function setUnit(el) {
   if (pricesCache) renderPricesFromCache();
 }
 
+async function tryFetch(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
 async function fetchPrices() {
   setPricesState('loading');
-  try {
-    const [goldRes, silverRes, fxRes] = await Promise.all([
-      fetch('https://gold-api.com/price/XAU'),
-      fetch('https://gold-api.com/price/XAG'),
-      fetch('https://open.er-api.com/v6/latest/USD')
-    ]);
 
-    if (!goldRes.ok || !silverRes.ok || !fxRes.ok) throw new Error('API error');
+  // Strategy: try multiple sources in order, use first that works
+  let goldUsdOz = null, silverUsdOz = null, goldChange = 0, goldChangePct = 0,
+      silverChange = 0, silverChangePct = 0, usdToInr = 84, source = '';
 
-    const [goldData, silverData, fxData] = await Promise.all([
-      goldRes.json(), silverRes.json(), fxRes.json()
-    ]);
+  // ── 1. Try Goldapi.io (CORS enabled, free, no key for demo) ──
+  // They have a public demo endpoint that works from browser
+  const sources = [
+    // Source A: api.gold-api.com
+    async () => {
+      const [g, s] = await Promise.all([
+        tryFetch('https://api.gold-api.com/price/XAU'),
+        tryFetch('https://api.gold-api.com/price/XAG'),
+      ]);
+      return {
+        goldUsdOz: g.price, silverUsdOz: s.price,
+        goldChange: g.ch || 0, goldChangePct: g.chp || 0,
+        silverChange: s.ch || 0, silverChangePct: s.chp || 0,
+        source: 'gold-api.com'
+      };
+    },
+    // Source B: corsproxy.io wrapping gold-api.com
+    async () => {
+      const base = 'https://corsproxy.io/?url=';
+      const [g, s] = await Promise.all([
+        tryFetch(base + encodeURIComponent('https://api.gold-api.com/price/XAU')),
+        tryFetch(base + encodeURIComponent('https://api.gold-api.com/price/XAG')),
+      ]);
+      return {
+        goldUsdOz: g.price, silverUsdOz: s.price,
+        goldChange: g.ch || 0, goldChangePct: g.chp || 0,
+        silverChange: s.ch || 0, silverChangePct: s.chp || 0,
+        source: 'corsproxy → gold-api.com'
+      };
+    },
+    // Source C: allorigins proxy
+    async () => {
+      const wrap = url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+      const [g, s] = await Promise.all([
+        tryFetch(wrap('https://api.gold-api.com/price/XAU')),
+        tryFetch(wrap('https://api.gold-api.com/price/XAG')),
+      ]);
+      return {
+        goldUsdOz: g.price, silverUsdOz: s.price,
+        goldChange: g.ch || 0, goldChangePct: g.chp || 0,
+        silverChange: s.ch || 0, silverChangePct: s.chp || 0,
+        source: 'allorigins → gold-api.com'
+      };
+    },
+  ];
 
-    // gold-api.com gives price per troy ounce in USD
-    const usdToInr = fxData.rates?.INR || 84;
-    pricesCache = {
-      goldUsdOz: goldData.price,
-      silverUsdOz: silverData.price,
-      goldChange: goldData.ch ?? goldData.change ?? 0,
-      goldChangePct: goldData.chp ?? goldData.change_pct ?? 0,
-      silverChange: silverData.ch ?? silverData.change ?? 0,
-      silverChangePct: silverData.chp ?? silverData.change_pct ?? 0,
-      usdToInr,
-      fetchedAt: new Date()
-    };
-
-    renderPricesFromCache();
-    setPricesState('live');
-  } catch(e) {
-    setPricesState('error');
+  let metalData = null;
+  for (const src of sources) {
+    try {
+      metalData = await src();
+      if (metalData.goldUsdOz) break;
+    } catch(e) { console.warn('Source failed:', e.message); }
   }
+
+  if (!metalData || !metalData.goldUsdOz) {
+    setPricesState('error');
+    return;
+  }
+
+  // ── Forex: USD → INR ──
+  const fxSources = [
+    () => tryFetch('https://api.frankfurter.dev/v2/rates?base=USD&quotes=INR'),
+    () => tryFetch('https://api.frankfurter.app/latest?base=USD&to=INR'),
+    () => tryFetch('https://open.er-api.com/v6/latest/USD'),
+  ];
+  for (const fx of fxSources) {
+    try {
+      const d = await fx();
+      const rate = d.rates?.INR || d.INR;
+      if (rate) { usdToInr = rate; break; }
+    } catch(e) {}
+  }
+
+  pricesCache = {
+    goldUsdOz: metalData.goldUsdOz,
+    silverUsdOz: metalData.silverUsdOz,
+    goldChange: metalData.goldChange,
+    goldChangePct: metalData.goldChangePct,
+    silverChange: metalData.silverChange,
+    silverChangePct: metalData.silverChangePct,
+    usdToInr,
+    fetchedAt: new Date(),
+    source: metalData.source
+  };
+
+  renderPricesFromCache();
+  setPricesState('live');
 }
 
 function unitMultiplier(usdPerOz) {
@@ -1258,6 +1325,10 @@ function renderPricesFromCache() {
 
   // FX
   qs('usd-inr-val').textContent = '₹' + usdToInr.toFixed(2);
+
+  // FX source label
+  const fxEl = document.getElementById('fx-source-label');
+  if (fxEl) fxEl.textContent = 'frankfurter / er-api';
 
   // Last update
   const t = pricesCache.fetchedAt;
