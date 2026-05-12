@@ -5,55 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EAssets Portal</title>
 
+  <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Opening Portal</title>
+
   <style>
-    *{
+    body{
       margin:0;
-      padding:0;
-      box-sizing:border-box;
-    }
-
-    html,body{
-      width:100%;
-      height:100%;
-      overflow:hidden;
-      background:#000;
-    }
-
-    iframe{
-      width:100%;
-      height:100%;
-      border:none;
-    }
-
-    .loading{
-      position:fixed;
-      inset:0;
+      height:100vh;
       display:flex;
-      align-items:center;
       justify-content:center;
+      align-items:center;
       background:#000;
       color:#fff;
       font-family:Arial,sans-serif;
-      z-index:999;
     }
   </style>
+
+  <script>
+    window.location.href = "https://eassets-studio.vercel.app/portal";
+  </script>
 </head>
 <body>
-
-<div class="loading" id="loading">
-  Loading Portal...
-</div>
-
-<iframe
-  src="https://eassets-studio.vercel.app/portal"
-  onload="hideLoading()">
-</iframe>
-
-<script>
-  function hideLoading() {
-    document.getElementById("loading").style.display = "none";
-  }
-</script>
-
+  Opening Portal...
 </body>
 </html>
